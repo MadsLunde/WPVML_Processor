@@ -8,7 +8,7 @@ namespace WPVML_Processor.Models
     {
         public string Id { get; set; }
         public string User { get; set; }
-        public float MoneySpent { get; set; }
+        public decimal MoneySpent { get; set; }
         public Location Location{ get; set; }
         public Weather Weather { get; set; }
         public List<PageVisit> PageVisits { get; set; }

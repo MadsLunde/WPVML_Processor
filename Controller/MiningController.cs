@@ -1,35 +1,62 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Linq;
+using System.Net;
 using System.Web.Http;
+
+using CeramicSpeed.Core.Helpers;
+using CeramicSpeed.Core.Services;
+
+using UCommerce.Api;
+using UCommerce.EntitiesV2;
+using UCommerce.Runtime;
+using Umbraco.Core.Logging;
+using Umbraco.Web.WebApi;
 using WPVML_Processor.Controller.ApiModels;
+using WPVML_Processor.Controller.ViewModels;
+using WPVML_Processor.Models;
 using WPVML_Processor.Services.RavenDB;
 
 namespace WPVML_Processor.Controller
 {
-    public class MiningController : ApiController
+    public class MiningController : UmbracoApiController
     {
-        private MainRepository repository;
-        public MiningController()
+        private readonly IDataMiningRepository _repository;
+        private readonly IVariantService _variantService;
+
+        public MiningController(IDataMiningRepository repository, IVariantService variantService)
         {
-            repository = new MainRepository();
+            _repository = repository;
+            _variantService = variantService;
         }
 
         [HttpPost]
         public IHttpActionResult CreateNewSession(CreateSession session)
         {
-            var result = repository.CreateSession(session);
-            if (string.IsNullOrWhiteSpace(result))
+            if (!ModelState.IsValid)
             {
-                return Ok(result);
+                return Content(HttpStatusCode.BadRequest, "Model invalid");
             }
-            else
+
+            if (!session.UserBrowserCookieId.HasValue)
             {
-                return InternalServerError();
+                session.UserBrowserCookieId = Guid.NewGuid();
+            }
+
+
+            try
+            {
+                var result = _repository.CreateSession(session);
+                return Ok(new SessionViewModel()
+                {
+                    UserBrowserCookieId = session.UserBrowserCookieId.Value,
+                    SessionId = result
+                });
+            }
+            catch (Exception e)
+            {
+                LogHelper.Error<MiningController>($"CreateNewSession failed - session: '{session}'", e);
+                return Content(HttpStatusCode.Conflict, "Something went wrong while creating new session for personalization");
             }
 
         }
@@ -37,24 +64,55 @@ namespace WPVML_Processor.Controller
         [HttpPost]
         public IHttpActionResult AddPageVisit(AddPageVisit page)
         {
-            /*
-            Thread th = new Thread(() =>
+            if (!ModelState.IsValid)
             {
-                Console.WriteLine("MiningController: " + Thread.CurrentThread);
-                var repo = new MainRepository();
-                repo.AddPageVisit(page);
-            });
-            th.Start();
-            */
-            
-            repository.AddPageVisit(page);
-            return Ok();
+                return Content(HttpStatusCode.BadRequest, "Model invalid");
+            }
+
+            try
+            {
+                _repository.AddPageVisit(page);
+                return Ok();
+            }
+            catch (Exception e)
+            {
+                LogHelper.Error<MiningController>($"AddPageVisit failed - page: '{page}'", e);
+                return Content(HttpStatusCode.Conflict, "Something went wrong while creating new session for personalization");
+            }
+
         }
 
-        [HttpGet]
-        public IHttpActionResult Test()
+        [HttpPost]
+        public IHttpActionResult UpdateProductsForUser(UpdateUserProducts model)
         {
-            return Ok("test ok");
+            if (!ModelState.IsValid)
+            {
+                return Content(HttpStatusCode.BadRequest, "Model invalid");
+            }
+
+            var order = OrderHelper.GetOrder(model.OrderGuid);
+            var productList = new List<UCommerceProduct>();
+
+            SiteContext.Current.CatalogContext.CurrentCatalog.PriceGroup =
+                PriceGroup.FirstOrDefault(x => x.PriceGroupId == 19);
+
+            var currentPriceGroup = SiteContext.Current.CatalogContext.CurrentCatalog.PriceGroup;
+
+            foreach (var line in order.OrderLines)
+            {
+                var product = CatalogLibrary.GetProduct(line.Sku);
+                var priceGroupPrice = product.PriceGroupPrices.Where(x => x.PriceGroup.PriceGroupId == 19).FirstOrDefault();
+                var price = _variantService.GetLowestVariantPrice(product);
+                if (priceGroupPrice.Price.HasValue)
+                {
+                    price = priceGroupPrice.Price.Value;
+                }
+                productList.Add(new UCommerceProduct() { Price = price, SKU = line.Sku, Quantity = line.Quantity });
+            }
+
+            _repository.UpdateUserProducts(productList, model.SessionId);
+
+            return Ok();
         }
     }
 }

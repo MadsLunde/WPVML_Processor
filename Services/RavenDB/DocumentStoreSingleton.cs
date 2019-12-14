@@ -1,7 +1,10 @@
-﻿using Raven.Client.Documents;
+﻿using Raven.Client;
 using System;
 using System.Collections.Generic;
 using System.Text;
+
+using Raven.Client.Document;
+using System.Configuration;
 
 namespace WPVML_Processor.Services.RavenDB
 {
@@ -10,6 +13,7 @@ namespace WPVML_Processor.Services.RavenDB
         private Dictionary<string, IDocumentStore> documentStoreDictionary;
         private static DocumentStoreSingleton instance = null;
         private IDocumentStore store;
+        private string databaseUrl = ConfigurationManager.AppSettings.Get("WPVML_Processor.DatabaseUrl");
         private DocumentStoreSingleton()
         {
             documentStoreDictionary = new Dictionary<string, IDocumentStore>();
@@ -23,17 +27,12 @@ namespace WPVML_Processor.Services.RavenDB
             }
             else
             {
-                store = new DocumentStore
+                store = new DocumentStore()
                 {
-                    Urls = new[] // URL to the Server,
-                    {
-                        // or list of URLs 
-                        "http://192.168.10.14:8080" // to all Cluster Servers (Nodes)
-                    },
-                    Database = databaseName, // Default database that DocumentStore will interact with
-                    Conventions = { } // DocumentStore customizationss
+                    Url = databaseUrl,
+                    DefaultDatabase = databaseName
                 };
-            
+
                 store.Initialize();                 // Each DocumentStore needs to be initialized before use.
                 // This process establishes the connection with the Server
                 // and downloads various configurations
